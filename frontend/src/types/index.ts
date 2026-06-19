@@ -29,3 +29,15 @@ export interface GCContent {
   position: number;
   gc: number;
 }
+
+export interface ValidationIssue {
+  level: 'error' | 'warning';
+  message: string;
+  seqId?: string;
+  seqName?: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  issues: ValidationIssue[];
+}

@@ -34,14 +34,28 @@ function handleAnalyzeGC() {
 }
 
 function handleBuildTree() {
-  if (store.sequences.length < 2) {
-    alert('至少需要2条序列');
-    return;
-  }
   isBuildingTree.value = true;
   setTimeout(() => {
     store.buildTree();
     isBuildingTree.value = false;
+    const validation = store.treeValidation;
+    if (validation && !validation.valid) {
+      const errors = validation.issues.filter(i => i.level === 'error');
+      const warnings = validation.issues.filter(i => i.level === 'warning');
+      let msg = '构建进化树失败，存在以下问题：\n\n';
+      if (errors.length > 0) {
+        msg += '【错误】\n' + errors.map((e, idx) => `${idx + 1}. ${e.message}`).join('\n') + '\n\n';
+      }
+      if (warnings.length > 0) {
+        msg += '【警告】\n' + warnings.map((w, idx) => `${idx + 1}. ${w.message}`).join('\n');
+      }
+      alert(msg);
+    } else if (validation && validation.issues.length > 0) {
+      const warnings = validation.issues.filter(i => i.level === 'warning');
+      if (warnings.length > 0) {
+        console.warn('[建树警告]', warnings.map(w => w.message).join('; '));
+      }
+    }
   }, 100);
 }
 
@@ -262,6 +276,28 @@ function handleLoadMock() {
             {{ isBuildingTree ? '构建中...' : '构建进化树' }}
           </button>
         </div>
+
+        <!-- Validation Issues Display -->
+        <div
+          v-if="store.treeValidation && store.treeValidation.issues.length > 0"
+          class="mx-4 mt-4 space-y-2"
+        >
+          <div
+            v-for="(issue, idx) in store.treeValidation.issues"
+            :key="idx"
+            class="px-3 py-2 rounded text-sm flex items-start gap-2"
+            :class="{
+              'bg-red-900/30 border border-red-800 text-red-300': issue.level === 'error',
+              'bg-yellow-900/30 border border-yellow-800 text-yellow-300': issue.level === 'warning'
+            }"
+          >
+            <span class="font-bold shrink-0">
+              {{ issue.level === 'error' ? '✕ 错误' : '⚠ 警告' }}
+            </span>
+            <span>{{ issue.message }}</span>
+          </div>
+        </div>
+
         <div class="p-4">
           <PhyloTree :tree="store.phyloTree" />
         </div>

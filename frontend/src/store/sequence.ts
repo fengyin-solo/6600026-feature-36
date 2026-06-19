@@ -1,12 +1,13 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { Sequence, AlignmentResult, GCContent, PhyloNode } from '../types';
+import type { Sequence, AlignmentResult, GCContent, PhyloNode, ValidationResult } from '../types';
 import {
   needlemanWunsch,
   smithWaterman,
   calculateGCContent,
   calculateDistanceMatrix,
   buildNJTree,
+  validateSequencesForTree,
   MOCK_SEQUENCES
 } from '../utils/alignment';
 
@@ -16,6 +17,7 @@ export const useSequenceStore = defineStore('sequence', () => {
   const currentAlgorithm = ref<'nw' | 'sw'>('nw');
   const gcData = ref<GCContent[]>([]);
   const phyloTree = ref<PhyloNode | null>(null);
+  const treeValidation = ref<ValidationResult | null>(null);
   const selectedSeq1 = ref<string>('');
   const selectedSeq2 = ref<string>('');
 
@@ -65,7 +67,12 @@ export const useSequenceStore = defineStore('sequence', () => {
   }
 
   function buildTree() {
-    if (sequences.value.length < 2) return;
+    const validation = validateSequencesForTree(
+      sequences.value.map(s => ({ id: s.id, name: s.name, data: s.data }))
+    );
+    treeValidation.value = validation;
+
+    if (!validation.valid) return;
 
     const seqData = sequences.value.map(s => ({ name: s.name, data: s.data }));
     const distMatrix = calculateDistanceMatrix(seqData);
@@ -85,6 +92,7 @@ export const useSequenceStore = defineStore('sequence', () => {
     currentAlgorithm,
     gcData,
     phyloTree,
+    treeValidation,
     selectedSeq1,
     selectedSeq2,
     alignmentIdentity,

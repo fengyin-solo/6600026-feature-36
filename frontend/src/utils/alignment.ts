@@ -1,4 +1,4 @@
-import type { AlignmentResult, GCContent, PhyloNode } from '../types';
+import type { AlignmentResult, GCContent, PhyloNode, ValidationResult, ValidationIssue } from '../types';
 
 /**
  * Needleman-Wunsch global alignment algorithm
@@ -317,6 +317,117 @@ function countGaps(a1: string, a2: string): number {
     if (c1 === '-' || c2 === '-') count++;
   }
   return count;
+}
+
+/**
+ * Validate sequences before building phylogenetic tree
+ * Checks for various data quality issues that could affect tree construction
+ */
+export function validateSequencesForTree(
+  sequences: { id: string; name: string; data: string }[]
+): ValidationResult {
+  const issues: ValidationIssue[] = [];
+
+  if (sequences.length < 2) {
+    issues.push({
+      level: 'error',
+      message: `至少需要2条序列，当前仅有 ${sequences.length} 条`
+    });
+    return { valid: false, issues };
+  }
+
+  const MIN_LENGTH = 30;
+  const MIN_VALID_BASE_RATIO = 0.5;
+  const MAX_LENGTH_RATIO = 20;
+  const MAX_SINGLE_BASE_RATIO = 0.9;
+  const MAX_IDENTICAL_PAIRS = sequences.length - 1;
+
+  let identicalPairCount = 0;
+  const lengths: number[] = [];
+  const processedSeqs: Map<string, { id: string; name: string }> = new Map();
+
+  for (const seq of sequences) {
+    const len = seq.data.length;
+    lengths.push(len);
+
+    if (len === 0) {
+      issues.push({
+        level: 'error',
+        seqId: seq.id,
+        seqName: seq.name,
+        message: `序列「${seq.name}」为空`
+      });
+      continue;
+    }
+
+    if (len < MIN_LENGTH) {
+      issues.push({
+        level: 'error',
+        seqId: seq.id,
+        seqName: seq.name,
+        message: `序列「${seq.name}」长度过短（${len} bp），至少需要 ${MIN_LENGTH} bp`
+      });
+    }
+
+    const validBases = (seq.data.match(/[ACGT]/gi) || []).length;
+    const validRatio = validBases / len;
+    if (validRatio < MIN_VALID_BASE_RATIO) {
+      issues.push({
+        level: 'error',
+        seqId: seq.id,
+        seqName: seq.name,
+        message: `序列「${seq.name}」有效碱基（ACGT）比例过低（${(validRatio * 100).toFixed(1)}%）`
+      });
+    }
+
+    const counts: Record<string, number> = { A: 0, C: 0, G: 0, T: 0 };
+    for (const base of seq.data.toUpperCase()) {
+      if (base in counts) counts[base]++;
+    }
+    const maxBaseCount = Math.max(...Object.values(counts));
+    const maxBaseRatio = maxBaseCount / len;
+    if (maxBaseRatio > MAX_SINGLE_BASE_RATIO) {
+      const dominantBase = Object.keys(counts).find(k => counts[k] === maxBaseCount) || '';
+      issues.push({
+        level: 'warning',
+        seqId: seq.id,
+        seqName: seq.name,
+        message: `序列「${seq.name}」碱基组成极度偏倚，${dominantBase} 占比达 ${(maxBaseRatio * 100).toFixed(1)}%，可能影响建树准确性`
+      });
+    }
+
+    if (processedSeqs.has(seq.data)) {
+      const dup = processedSeqs.get(seq.data)!;
+      identicalPairCount++;
+      issues.push({
+        level: 'warning',
+        seqId: seq.id,
+        seqName: seq.name,
+        message: `序列「${seq.name}」与「${dup.name}」完全相同，可能是重复样本`
+      });
+    } else {
+      processedSeqs.set(seq.data, { id: seq.id, name: seq.name });
+    }
+  }
+
+  const minLen = Math.min(...lengths);
+  const maxLen = Math.max(...lengths);
+  if (minLen > 0 && maxLen / minLen > MAX_LENGTH_RATIO) {
+    issues.push({
+      level: 'warning',
+      message: `序列长度差异过大（最短 ${minLen} bp，最长 ${maxLen} bp，相差 ${(maxLen / minLen).toFixed(1)} 倍），可能导致比对偏差`
+    });
+  }
+
+  if (identicalPairCount >= MAX_IDENTICAL_PAIRS) {
+    issues.push({
+      level: 'error',
+      message: `存在 ${identicalPairCount} 组完全相同的序列，缺乏足够变异信息，无法构建有意义的进化树`
+    });
+  }
+
+  const hasErrors = issues.some(i => i.level === 'error');
+  return { valid: !hasErrors, issues };
 }
 
 /**
